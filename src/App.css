@@ -56,3 +56,11 @@
 .elevator-stop--last {
   margin-bottom: 0;
 }
+
+.highlight-button {
+
+}
+
+.highlight-button--is-active {
+  background-color: red;
+}

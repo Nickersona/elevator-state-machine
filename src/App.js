@@ -1,4 +1,5 @@
 import React, { useEffect, useReducer, useState } from "react";
+import classnames from 'classnames'
 import useAnimation from "./hooks/useAnimation";
 import "./App.css";
 
@@ -14,22 +15,47 @@ const BuildingStats = {
   ]
 };
 
+function HighlightButton({
+  onClick, 
+  children, 
+  className, 
+  shouldToggleHighlight
+}) {
+  const [isHighlighted, setHighlighted] = useState(false);
+  const classNames = classnames(
+    'highlight-button', 
+    className,
+    {
+      'highlight-button--is-active': isHighlighted
+    }
+  );
+
+  useEffect(() => {
+    if(shouldToggleHighlight()) {
+      setHighlighted(false);
+    }
+  })
+
+  return (
+    <button
+      className={classNames}
+      onClick={() => {
+        setHighlighted(true);
+        onClick()
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 const calculateElevatorPosition = idx => 30 * idx + 10 * idx - idx * 2;
 
-function CarControls({ stops, callElevator }) {
+function CarControls({ children }) {
   return (
     <div className="car-controls">
       <h2>Car Controls</h2>
-      <div className="car-controls__buttons">
-        {stops.map(({ name }, idx) => (
-          <button
-            className="car-controls__button"
-            onClick={() => callElevator(idx)}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      {children}
     </div>
   );
 }
@@ -66,18 +92,22 @@ function TransitioningCar({ startIndex, endIndex, onComplete }) {
   return <Car position={position} />;
 }
 
+let waitTimeout;
+
 function ElevatorCar(props) {
-  const { stopQueue, currentStopIdx, dispatch } = props;
+  const { stopQueue, currentStopIdx, dispatch, state } = props;
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [ endIndex ] = stopQueue;
 
   function onTransitionComplete() {
     dispatch({ type: 'CAR_TRANSITION_COMPLETE' })
+    waitTimeout = setTimeout(() => dispatch({ type: 'DISEMBARK_COMPLETE' }), BuildingStats.stopDelay)
     setIsTransitioning(false);
   }
 
+
   useEffect(() => {
-    if (selectors.hasQueuedStops(props)) {
+    if (state === 'MOVING') {
       setIsTransitioning(true);
     }
   });
@@ -99,6 +129,8 @@ const initialState = {
   state: "IDLE"
 };
 
+
+
 function reducer(state, action) {
   console.log({state, action})
   switch (action.type) {
@@ -107,15 +139,25 @@ function reducer(state, action) {
         ? state
         : {
           ...state,
-          stopQueue: [...state.stopQueue, action.stopIndex]
+          stopQueue: [...state.stopQueue, action.stopIndex],
+          state: state.state === 'IDLE' ? 'MOVING' : state.state
         };
     case "CAR_TRANSITION_COMPLETE":
       const [ newIndex, ...restOfQueue ] = state.stopQueue
       return {
         ...state,
         stopQueue: restOfQueue,
-        currentStopIdx: newIndex
+        currentStopIdx: newIndex,
+        state: 'WAITING_FOR_DISEMBARK'
       };
+
+    case "DISEMBARK_COMPLETE":
+      const nextState = selectors.hasQueuedStops(state) ? 'MOVING' : 'IDLE'
+      console.log({nextState})
+      return {
+        ...state,
+        state: selectors.hasQueuedStops(state) ? 'MOVING' : 'IDLE'
+      }
     default:
       return state;
   }
@@ -125,6 +167,10 @@ function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const callElevator = stopIndex =>
     dispatch({ type: "PRESS_CALL_BUTTON", stopIndex });
+  
+  const { currentStopIdx } = state;
+ console.log(state)
+
   return (
     <div className="App">
       <div className="elevator">
@@ -136,7 +182,12 @@ function App() {
             return (
               <div className={`elevator-stop ${modifier}`}>
                 <div className="elevator-stop__label">
-                  <button onClick={() => callElevator(idx)}>Call {name}</button>
+                  <HighlightButton
+                    onClick={() => callElevator(idx)}
+                    shouldToggleHighlight={() => idx === currentStopIdx}
+                  >
+                    Call {name}
+                  </HighlightButton>
                 </div>
                 <div className="elevator-stop__pip" />
               </div>
@@ -144,7 +195,19 @@ function App() {
           })}
         </div>
       </div>
-      <CarControls stops={BuildingStats.stops} callElevator={callElevator} />
+      <CarControls>
+        <div className="car-controls__buttons">
+          {BuildingStats.stops.map(({ name }, idx) => (
+            <HighlightButton
+              className="car-controls__button" 
+              onClick={() => callElevator(idx)}
+              shouldToggleHighlight={() => idx === currentStopIdx}
+            >
+              {name}
+            </HighlightButton>
+          ))}
+        </div>
+      </CarControls>
     </div>
   );
 }
