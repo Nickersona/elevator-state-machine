@@ -4,8 +4,8 @@ import useAnimation from "./hooks/useAnimation";
 import "./App.css";
 
 const BuildingStats = {
-  timeBetweenFloors: 1000,
-  stopDelay: 3000, // Time elevator waits on each floor without interruption before continuing
+  timeBetweenFloors: 1000, // Travel time from one floor to the next
+  stopDelay: 2000, // Time elevator waits on each floor without interruption before continuing
   stops: [
     { name: "Penthouse" },
     { name: "Third Floor" },
@@ -82,7 +82,7 @@ function TransitioningCar({ startIndex, endIndex, onComplete }) {
 
 
   const animationTime = Math.abs(BuildingStats.timeBetweenFloors * (endIndex - startIndex))
-  const animationProgress = useAnimation("linear", animationTime, 0);
+  const animationProgress = useAnimation("inOutSine", animationTime, 0);
   const position = startPostion + delta * animationProgress;
 
   useEffect(() => {
@@ -131,15 +131,36 @@ const initialState = {
 
 
 
+
+function sortQueue(stopQueue, currentStopIdx) {
+  const { above, below } = stopQueue.reduce(
+    (acc, item) => {
+      const whichList = item <= currentStopIdx ? 'above' : 'below';
+      acc[whichList].push(item)
+      return acc;
+    },
+    {above: [], below: []}
+  );
+
+  const sortedStopQueue = [ ...below.sort(),  ...above.sort((a, b) => b-a) ]
+  console.log({
+    stopQueue,
+    sortedStopQueue
+  })
+  return sortedStopQueue
+}
+
+
+
 function reducer(state, action) {
   console.log({state, action})
   switch (action.type) {
     case "PRESS_CALL_BUTTON":
-      return action.stopIndex === state.currentStopIdx 
+      return action.stopIndex === state.currentStopIdx && state.state !== 'MOVING'
         ? state
         : {
           ...state,
-          stopQueue: [...state.stopQueue, action.stopIndex],
+          stopQueue: sortQueue([...state.stopQueue, action.stopIndex], state.currentStopIdx),
           state: state.state === 'IDLE' ? 'MOVING' : state.state
         };
     case "CAR_TRANSITION_COMPLETE":
@@ -184,7 +205,7 @@ function App() {
                 <div className="elevator-stop__label">
                   <HighlightButton
                     onClick={() => callElevator(idx)}
-                    shouldToggleHighlight={() => idx === currentStopIdx}
+                    shouldToggleHighlight={() => idx === currentStopIdx && state.state === 'WAITING_FOR_DISEMBARK'}
                   >
                     Call {name}
                   </HighlightButton>

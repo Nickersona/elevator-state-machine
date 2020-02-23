@@ -1,3 +1,4 @@
+// From: https://usehooks.com/useAnimation
 import useAnimationTimer from './useAnimationTimer';
 
 export default function useAnimation(
@@ -22,5 +23,6 @@ const easing = {
   linear: n => n,
   elastic: n =>
     n * (33 * n * n * n * n - 106 * n * n * n + 126 * n * n - 67 * n + 15),
-  inExpo: n => Math.pow(2, 10 * (n - 1))
+  inExpo: n => Math.pow(2, 10 * (n - 1)),
+  inOutSine: (t) => -(Math.cos(Math.PI * t) - 1) / 2,
 };
