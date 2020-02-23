@@ -1,5 +1,14 @@
-import React, { useEffect, useReducer, useState } from "react";
-import classnames from 'classnames'
+// @flow
+
+import React, {
+  useEffect,
+  useReducer,
+  useState,
+  useRef,
+  type Node,
+  type Element
+} from "react";
+import classnames from "classnames";
 import useAnimation from "./hooks/useAnimation";
 import "./App.css";
 
@@ -15,33 +24,52 @@ const BuildingStats = {
   ]
 };
 
+// Hook
+function usePrevious(value) {
+  // The ref object is a generic container whose current property is mutable ...
+  // ... and can hold any value, similar to an instance property on a class
+  const ref = useRef();
+
+  // Store current value in ref
+  useEffect(() => {
+    ref.current = value;
+  }, [value]); // Only re-run if value changes
+
+  // Return previous value (happens before update in useEffect above)
+  return ref.current;
+}
+
+type HighlightPropsType = {|
+  onClick: Function,
+  children: Node,
+  className?: string,
+  shouldToggleHighlight: Function
+|};
+
 function HighlightButton({
-  onClick, 
-  children, 
-  className, 
+  onClick,
+  children,
+  className,
   shouldToggleHighlight
-}) {
+}: HighlightPropsType) {
   const [isHighlighted, setHighlighted] = useState(false);
-  const classNames = classnames(
-    'highlight-button', 
-    className,
-    {
-      'highlight-button--is-active': isHighlighted
-    }
-  );
+  const classNames: string = classnames("highlight-button", className, {
+    "highlight-button--is-active": isHighlighted
+  });
 
   useEffect(() => {
-    if(shouldToggleHighlight()) {
+    if (shouldToggleHighlight()) {
       setHighlighted(false);
     }
-  })
+  });
 
   return (
     <button
+      type="button"
       className={classNames}
       onClick={() => {
         setHighlighted(true);
-        onClick()
+        onClick();
       }}
     >
       {children}
@@ -49,9 +77,18 @@ function HighlightButton({
   );
 }
 
-const calculateElevatorPosition = idx => 30 * idx + 10 * idx - idx * 2;
+HighlightButton.defaultProps = {
+  className: ""
+};
 
-function CarControls({ children }) {
+const calculateElevatorPosition = (idx: number): number =>
+  30 * idx + 10 * idx - idx * 2;
+
+type CarControlsPropsType = {
+  children: Node
+};
+
+function CarControls({ children }: CarControlsPropsType) {
   return (
     <div className="car-controls">
       <h2>Car Controls</h2>
@@ -61,10 +98,14 @@ function CarControls({ children }) {
 }
 
 const selectors = {
-  hasQueuedStops: state => state.stopQueue.length > 0
+  hasQueuedStops: (state: AppState): boolean => state.stopQueue.length > 0
 };
 
-function Car({ position }) {
+type CarPropsType = {
+  position: number
+};
+
+function Car({ position }: CarPropsType): Element<"div"> {
   return (
     <div
       className="elevator-car"
@@ -75,122 +116,242 @@ function Car({ position }) {
   );
 }
 
-function TransitioningCar({ startIndex, endIndex, onComplete }) {
-  const startPostion = calculateElevatorPosition(startIndex);
-  const endPosition = calculateElevatorPosition(endIndex);
-  const delta = endPosition - startPostion;
+type DirectionType = "up" | "down";
 
+type TransitioningCarPropsType = {
+  startIndex: number,
+  endIndex: number,
+  onComplete: () => void,
+  onPassFloor: (stopIndex: number) => void,
+  transitionStopIndex: number
+};
 
-  const animationTime = Math.abs(BuildingStats.timeBetweenFloors * (endIndex - startIndex))
-  const animationProgress = useAnimation("inOutSine", animationTime, 0);
-  const position = startPostion + delta * animationProgress;
+function TransitioningCar({
+  startIndex,
+  endIndex,
+  onComplete,
+  onPassFloor,
+  transitionStopIndex
+}: TransitioningCarPropsType): Element<typeof Car> {
+  const position = useRef(0);
+  const startPosition = useRef(calculateElevatorPosition(startIndex));
+
+  const direction = startIndex < endIndex ? "up" : "down";
 
   useEffect(() => {
-    if(position === endPosition) { onComplete() }
-  })
+    if (direction === "up") {
+      if (
+        position.current > calculateElevatorPosition(transitionStopIndex + 1)
+      ) {
+        onPassFloor(transitionStopIndex + 1);
+      }
+    } else {
+      if (
+        position.current < calculateElevatorPosition(transitionStopIndex - 1)
+      ) {
+        onPassFloor(transitionStopIndex - 1);
+      }
+    }
+  }, [position.current, direction]);
+// 
+//   const previousEndIndex = usePrevious(endIndex);
+//   useEffect(() => {
+//     if (previousEndIndex) {
+//       startPosition.current = position.current;
+//       console.log("END INDEX UPDATED", endIndex);
+//     }
+//   }, [position.current]);
+  // const endIndexHasChanged = useHasEndIndexChanged(endIndex);
 
-  return <Car position={position} />;
+  // console.log(position.current);
+  const endPosition = calculateElevatorPosition(endIndex);
+  const delta = endPosition - startPosition.current;
+
+  const animationTime = Math.abs(
+    BuildingStats.timeBetweenFloors * (endIndex - startIndex)
+  );
+  const animationProgress = useAnimation("linear", animationTime, 0);
+  position.current = startPosition.current + delta * animationProgress;
+
+  useEffect(() => {
+    if (position.current === endPosition) {
+      onComplete();
+    }
+  });
+
+  return <Car position={position.current} />;
 }
 
 let waitTimeout;
 
-function ElevatorCar(props) {
-  const { stopQueue, currentStopIdx, dispatch, state } = props;
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [ endIndex ] = stopQueue;
+type ElevatorCarPropsType = AppState & {
+  dispatch: DispatchFunctionType
+};
 
-  function onTransitionComplete() {
-    dispatch({ type: 'CAR_TRANSITION_COMPLETE' })
-    waitTimeout = setTimeout(() => dispatch({ type: 'DISEMBARK_COMPLETE' }), BuildingStats.stopDelay)
+function ElevatorCar(
+  props: ElevatorCarPropsType
+): Element<typeof TransitioningCar | typeof Car> {
+  const {
+    stopQueue,
+    currentStopIdx,
+    transitionStopIndex,
+    dispatch,
+    state
+  } = props;
+  const [
+    isTransitioning: boolean,
+    setIsTransitioning: (val: boolean) => void
+  ] = useState(false);
+
+  const [endIndex: number] = stopQueue;
+
+  function onTransitionComplete(): void {
+    dispatch({ type: "CAR_TRANSITION_COMPLETE" });
+    waitTimeout = setTimeout(
+      () => dispatch({ type: "DISEMBARK_COMPLETE" }),
+      BuildingStats.stopDelay
+    );
     setIsTransitioning(false);
   }
 
-
   useEffect(() => {
-    if (state === 'MOVING') {
+    if (state === "MOVING") {
       setIsTransitioning(true);
     }
   });
 
-  return isTransitioning 
-    ? (
-      <TransitioningCar 
-        startIndex={currentStopIdx} 
-        endIndex={endIndex}
-        onComplete={onTransitionComplete}
-      />
-    )
-    : <Car position={calculateElevatorPosition(currentStopIdx)} />;
+  return isTransitioning ? (
+    <TransitioningCar
+      startIndex={currentStopIdx}
+      endIndex={endIndex}
+      onComplete={onTransitionComplete}
+      transitionStopIndex={transitionStopIndex}
+      onPassFloor={(stopIndex: number) =>
+        dispatch({ type: "TRANSITION_POSITION_UPDATE", payload: { stopIndex } })
+      }
+    />
+  ) : (
+    <Car position={calculateElevatorPosition(currentStopIdx)} />
+  );
 }
 
-const initialState = {
+type CarState = "IDLE" | "MOVING" | "WAITING_FOR_DISEMBARK";
+type StopQueue = number[];
+
+type AppState = {
+  stopQueue: StopQueue,
+  currentStopIdx: number,
+  transitionStopIndex: number,
+  state: CarState
+};
+
+const initialState: AppState = {
   stopQueue: [],
-  currentStopIdx: (BuildingStats.stops.length - 2),
+  currentStopIdx: BuildingStats.stops.length - 2,
+  transitionStopIndex: BuildingStats.stops.length - 2,
   state: "IDLE"
 };
 
-
-
-
-function sortQueue(stopQueue, currentStopIdx) {
+function sortQueue(stopQueue: StopQueue, currentStopIdx: number): StopQueue {
   const { above, below } = stopQueue.reduce(
     (acc, item) => {
-      const whichList = item <= currentStopIdx ? 'above' : 'below';
-      acc[whichList].push(item)
+      const whichList = item <= currentStopIdx ? "above" : "below";
+      acc[whichList].push(item);
       return acc;
     },
-    {above: [], below: []}
+    { above: [], below: [] }
   );
 
-  const sortedStopQueue = [ ...below.sort(),  ...above.sort((a, b) => b-a) ]
+  const sortedStopQueue = [...below.sort(), ...above.sort((a, b) => b - a)];
   console.log({
     stopQueue,
     sortedStopQueue
-  })
-  return sortedStopQueue
+  });
+  return sortedStopQueue;
 }
 
+type CallButtonAction = {|
+  type: "PRESS_CALL_BUTTON",
+  payload: {|
+    stopIndex: number
+  |}
+|};
 
+type TransitionPositionUpdate = {|
+  type: "TRANSITION_POSITION_UPDATE",
+  payload: {|
+    stopIndex: number
+  |}
+|};
 
-function reducer(state, action) {
-  console.log({state, action})
+type CarTransitionCompleteAction = {|
+  type: "CAR_TRANSITION_COMPLETE"
+|};
+
+type DisembarkCompleteAction = {|
+  type: "DISEMBARK_COMPLETE"
+|};
+
+type ReduxAction =
+  | CallButtonAction
+  | CarTransitionCompleteAction
+  | DisembarkCompleteAction
+  | TransitionPositionUpdate;
+
+function reducer(state: AppState, action: ReduxAction): AppState {
+  console.log({ state, action });
   switch (action.type) {
     case "PRESS_CALL_BUTTON":
-      return action.stopIndex === state.currentStopIdx && state.state !== 'MOVING'
+      return action.payload.stopIndex === state.currentStopIdx &&
+        state.state !== "MOVING"
         ? state
         : {
-          ...state,
-          stopQueue: sortQueue([...state.stopQueue, action.stopIndex], state.currentStopIdx),
-          state: state.state === 'IDLE' ? 'MOVING' : state.state
-        };
+            ...state,
+            stopQueue: sortQueue(
+              [...state.stopQueue, action.payload.stopIndex],
+              state.currentStopIdx
+            ),
+            state: state.state === "IDLE" ? "MOVING" : state.state
+          };
     case "CAR_TRANSITION_COMPLETE":
-      const [ newIndex, ...restOfQueue ] = state.stopQueue
+      const [newIndex, ...restOfQueue] = state.stopQueue;
       return {
         ...state,
         stopQueue: restOfQueue,
         currentStopIdx: newIndex,
-        state: 'WAITING_FOR_DISEMBARK'
+        state: "WAITING_FOR_DISEMBARK"
       };
 
     case "DISEMBARK_COMPLETE":
-      const nextState = selectors.hasQueuedStops(state) ? 'MOVING' : 'IDLE'
-      console.log({nextState})
+      const nextState = selectors.hasQueuedStops(state) ? "MOVING" : "IDLE";
+      console.log({ nextState });
       return {
         ...state,
-        state: selectors.hasQueuedStops(state) ? 'MOVING' : 'IDLE'
-      }
+        state: selectors.hasQueuedStops(state) ? "MOVING" : "IDLE"
+      };
+    case "TRANSITION_POSITION_UPDATE":
+      return {
+        ...state,
+        transitionStopIndex: action.payload.stopIndex
+      };
     default:
       return state;
   }
 }
 
+type DispatchFunctionType = (action: ReduxAction) => void;
+
 function App() {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const callElevator = stopIndex =>
-    dispatch({ type: "PRESS_CALL_BUTTON", stopIndex });
-  
+  const [state: AppState, dispatch: DispatchFunctionType] = useReducer(
+    reducer,
+    initialState
+  );
+
+  const callElevator = (stopIndex: number) =>
+    dispatch({ type: "PRESS_CALL_BUTTON", payload: { stopIndex } });
+
   const { currentStopIdx } = state;
- console.log(state)
+  console.log(state);
 
   return (
     <div className="App">
@@ -205,7 +366,10 @@ function App() {
                 <div className="elevator-stop__label">
                   <HighlightButton
                     onClick={() => callElevator(idx)}
-                    shouldToggleHighlight={() => idx === currentStopIdx && state.state === 'WAITING_FOR_DISEMBARK'}
+                    shouldToggleHighlight={() =>
+                      idx === currentStopIdx &&
+                      state.state === "WAITING_FOR_DISEMBARK"
+                    }
                   >
                     Call {name}
                   </HighlightButton>
@@ -220,7 +384,7 @@ function App() {
         <div className="car-controls__buttons">
           {BuildingStats.stops.map(({ name }, idx) => (
             <HighlightButton
-              className="car-controls__button" 
+              className="car-controls__button"
               onClick={() => callElevator(idx)}
               shouldToggleHighlight={() => idx === currentStopIdx}
             >
